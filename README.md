@@ -1,26 +1,23 @@
 # Previews
 
-A floating drawer for the images your coding agent draws — and a one-key way to
-send the annotated feedback back to the agent.
+A pane beside your terminal for the images your coding agent draws — and a
+one-key way to send the annotated feedback back to the agent.
 
 ![Previews](preview.png)
 
-![The drawer](screenshots/drawer.png)
-
 ## What it does
 
-- **Watches `<project>/.herdr-previews/`** — the folder of the focused terminal.
-  A PNG an agent saves there shows up within a few seconds, with a toast and a
-  sound.
-- **A rail, then a list.** Idle, the drawer is a 36 px strip on the right edge
-  with an unread badge. Hovered, or focused with `alt-p`, it opens into a list of
-  cards grouped by file stem (`homepage-v1.png`, `homepage-v2.png` → `homepage`),
-  newest group first, the 40 newest images overall.
+- **Watches `<project>/.herdr-previews/`** — the folder of the terminal the
+  pane is split beside. A PNG an agent saves there shows up within a few
+  seconds, with a toast and a sound.
+- **A card list.** `alt-p` splits the pane in beside the terminal and shows
+  cards grouped by file stem (`homepage-v1.png`, `homepage-v2.png` →
+  `homepage`), newest group first, the 40 newest images overall.
 - **Status per image**: `new`, `reviewed` (once opened), `approved`.
 - **Pop-out viewer**: the image at its real aspect ratio, zoom and pan, a
   numbered pin wherever you click, a pen and a circle tool for drawings, a note
-  on every pin and every drawing, and `Compare` to put an older draft beside the
-  current one.
+  on every pin and every drawing, and `Compare` to put an older draft beside
+  the current one.
 - **Send notes** types the feedback into the space's agent through `hc send` —
   `Feedback on draft: <path>` plus one line per pin — and `Approve` adds
   `Approved: <path>`. Notes live next to the images in `notes.json`.
@@ -31,10 +28,10 @@ send the annotated feedback back to the agent.
 
 | Key | Does |
 |---|---|
-| `alt-p` | focus the drawer |
+| `alt-p` | open the previews pane beside the terminal |
 | `j` / `k` | move between cards |
 | `x` `x` | delete the image (armed; press again) |
-| `Esc` | back to the pane on the left |
+| `Esc` | back to the terminal |
 | `[` / `]` | previous / next draft in the pop-out |
 
 ## Install
@@ -45,23 +42,17 @@ cp -r mods/previews ~/.config/herdr-app/mods/previews
 herdr-app check ~/.config/herdr-app/mods/previews
 ```
 
-Then place it as a floating block on the right edge of a **personal** layout
-(shipped layouts are rewritten on every app start, so a block added to them does
-not survive):
-
-```json
-"floating": [{ "id": "previews", "content": { "mod": "previews" }, "edge": "right", "align": "center" }]
-```
-
-Without a layout change, `herdr-app do mod.open '{"name":"previews"}'` opens it.
+No layout edit: the pane opens with `alt-p` wherever you are, and closes like
+any pane.
 
 **Teach your agent the convention**: paste `mods/previews/agent-snippet.md` into
 the project's `AGENTS.md`, so captures land in `.herdr-previews/<target>-vN.png`
-and the drawer picks them up by itself.
+and the pane picks them up by itself.
 
 ## Notes
 
-- The project is the focused terminal's working directory, not the space folder.
+- The project is the sibling terminal's working directory, not the space
+  folder.
 - Shown images are copied into the mod's own `.cache/`; the originals are never
   modified.
 - It runs `find`, `rm`, `sh`/`ssh`/`base64`/`mv` (remote copies and writes) and
