@@ -1,14 +1,14 @@
 // Previews: images an agent saves into <project folder>/.herdr-previews/ show up
-// in a floating right-edge drawer. A card opens a draggable pop-out window with
+// in a pane (alt-p splits one open beside the terminal). A card opens a draggable pop-out window with
 // the big image, mouse pins with notes, a status per image and a one-key send
 // of the annotated feedback to the space's agent (`hc send`).
 //
-// One file, two modes: the docked copy is the drawer; `props().overlay` is set
+// One file, two modes: the pane is the card list; `props().overlay` is set
 // in the pop-out window that openOverlay({ mod: "previews" }) makes.
 
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, ScrollHandle } from "gpui-base";
-import { agents, spaces, panes, focused, props, theme, run, exec, notify, playSound, openOverlay, closeOverlay, nextCommand, placement } from "herdr";
+import { agents, spaces, panes, focused, props, theme, run, exec, notify, playSound, openOverlay, closeOverlay, nextCommand } from "herdr";
 import {
   baseName, stemOf, groupItems, listImages, cachedImage, removeCached, imageSize,
   readNotesRaw, parseNotes, writeNotesText, writeStrokeSvg, feedbackText, sendToAgent,
@@ -16,11 +16,7 @@ import {
 
 const MOD = "previews";
 const POLL_TICKS = 3; // the timer ticks every second; a poll is every third
-const AWAY = { right: "left", left: "right", top: "down", bottom: "up" }; // pane.go away from a drawer edge
 const CONFIRM_MS = 3000; // second press of x within this deletes
-const RAIL_W = 36;
-const LIST_W = 280;
-const LIST_MAX_H = 560;
 const HEAD_H = 24; // group header row
 const CARD_H = 62;
 const THUMB_W = 64;
@@ -65,6 +61,9 @@ export default class Previews extends View {
     this.armed = null; // { path, at }: x pressed once
     this.bkey = null;
     this.bind = null;
+    this.lastTerm = null; // the terminal pane in this tab that last had focus
+    this.ownId = null; // this pane's id, once seen
+    this.rebound = false; // a render changed the binding; the next tick polls
     this.tick = 0;
     this.strokeSvg = new Map(); // path -> { rel }: the stroke overlay SVG under appHome
     this.svgBusy = new Set(); // paths whose SVG is being written
@@ -109,17 +108,11 @@ export default class Previews extends View {
       this.scroll = ScrollHandle.new();
       this.sel = null;
       this.seen = new Map(); // binding -> paths already announced
-      this.wantOpen = false; // opened by key: show the list even when not hovered
-      this.focusAt = 0;
       cx.spawn(async (cx) => {
         for (;;) {
           try {
             const c = await nextCommand();
-            if (c === "focus") {
-              this.wantOpen = true;
-              this.focusAt = Date.now();
-              this.h.focus();
-            }
+            if (c === "focus") this.h.focus();
           } catch {}
           cx.notify();
         }
@@ -132,7 +125,7 @@ export default class Previews extends View {
 
   // ---- binding ------------------------------------------------------------
 
-  // The drawer follows the active space; the window is pinned to the one it
+  // The pane follows the space it sits in; the window is pinned to the one it
   // was opened from.
   binding() {
     const all = spaces();
@@ -142,25 +135,42 @@ export default class Previews extends View {
       s = all.find((x) => x.id === f.space) ?? all.find((x) => x.folder === f.folder && (x.machine ?? null) === f.machine);
       return { key: `${f.machine ?? ""}|${f.folder}`, folder: f.folder, machine: f.machine, spaceId: s?.id ?? f.space, spaceName: s?.name ?? "" };
     }
-    s = all.find((x) => x.active);
+    const own = this.ownPane();
+    s = (own && all.find((x) => x.tabs.some((t) => t.id === own.tab))) ?? all.find((x) => x.active);
     if (!s) return null;
-    const folder = this.projectRoot(s);
+    const folder = this.projectRoot(s, own?.tab ?? s.tabs.find((t) => t.active)?.id);
     return { key: `${s.machine ?? ""}|${folder}`, folder, machine: s.machine ?? null, spaceId: s.id, spaceName: s.name };
   }
 
-  // The project is where the focused terminal is, not where the space's
-  // terminals started: focused cwd, else the active tab's focused (or first)
-  // pane, else the space's folder.
-  projectRoot(s) {
-    const cwd = focused()?.cwd;
-    if (cwd) return cwd;
-    const tab = s.tabs.find((t) => t.active);
-    if (tab) {
-      const ps = panes().filter((p) => p.tab === tab.id && p.cwd);
-      const p = ps.find((x) => x.focused) ?? ps[0];
-      if (p) return p.cwd;
-    }
-    return s.folder;
+  // This mod's own pane: the remembered id, else props().pane (documented only
+  // for pane-header mods, so it may be absent), else the focused previews pane,
+  // whose id is then remembered.
+  ownPane() {
+    const all = panes();
+    const known = (id) => (id && all.find((p) => p.pane === id)) || null;
+    const own = known(this.ownId) || known(props()?.pane);
+    if (own) return own;
+    const p = all.find((x) => x.mod === MOD && x.focused);
+    if (p) this.ownId = p.pane;
+    return p ?? null;
+  }
+
+  // The project is where the terminal beside this pane is. `focused()` can't say:
+  // while this pane has the keyboard it is the focused pane. So: the focused
+  // terminal pane in this tab (remembered once focus moves here), else the
+  // tab's first terminal, else the space's focused terminal, else any terminal
+  // in the space, else the space's folder.
+  projectRoot(s, tabId) {
+    const terms = panes().filter((p) => p.terminal && p.cwd);
+    const inTab = terms.filter((p) => p.tab === tabId);
+    const live = inTab.find((p) => p.focused);
+    if (live) this.lastTerm = live.pane;
+    const p = live ?? inTab.find((x) => x.pane === this.lastTerm) ?? inTab[0];
+    if (p) return p.cwd;
+    const f = focused();
+    if (f?.space === s.id && f.terminal && f.cwd) return f.cwd;
+    const tabs = new Set(s.tabs.map((t) => t.id));
+    return terms.find((x) => tabs.has(x.tab))?.cwd ?? s.folder;
   }
 
   rebind() {
@@ -169,6 +179,7 @@ export default class Previews extends View {
     const key = b?.key ?? null;
     if (key === this.bkey) return false;
     this.bkey = key;
+    this.rebound = true;
     this.items = [];
     this.notes = {};
     this.notesRaw = null;
@@ -183,11 +194,8 @@ export default class Previews extends View {
   }
 
   step(cx, first) {
-    const changed = this.rebind();
-    if (!this.overlay && this.wantOpen && !this.h.is_focused() && Date.now() - this.focusAt > 1500) {
-      this.wantOpen = false;
-      cx.notify();
-    }
+    const changed = this.rebind() || this.rebound;
+    this.rebound = false;
     if (first || changed || ++this.tick % POLL_TICKS === 0) this.poll(cx);
   }
 
@@ -235,11 +243,10 @@ export default class Previews extends View {
     }
     const fresh = items.filter((i) => !seen.has(i.path));
     for (const i of fresh) seen.add(i.path);
-    const action = { name: `${MOD}.focus` };
     for (const i of fresh.slice(0, 3)) {
-      notify({ title: "New preview", body: b.spaceName ? `${i.name} · ${b.spaceName}` : i.name, level: "info", action });
+      notify({ title: "New preview", body: b.spaceName ? `${i.name} · ${b.spaceName}` : i.name, level: "info" });
     }
-    if (fresh.length > 3) notify({ title: `${fresh.length - 3} more new previews`, level: "info", action });
+    if (fresh.length > 3) notify({ title: `${fresh.length - 3} more new previews`, level: "info" });
     if (fresh.length) playSound("done");
   }
 
@@ -436,7 +443,7 @@ export default class Previews extends View {
   }
 
   // Edit the notes: at once in memory, then on disk against a fresh read (so
-  // the drawer and a window editing the same file don't overwrite each other).
+  // the pane and a window editing the same file don't overwrite each other).
   update(cx, fn) {
     if (!this.bind?.folder) return;
     fn(this.notes);
@@ -593,7 +600,7 @@ export default class Previews extends View {
     });
   }
 
-  // ---- drawer ---------------------------------------------------------------
+  // ---- pane -----------------------------------------------------------------
 
   popout(cx, item) {
     this.sel = item.path;
@@ -615,11 +622,7 @@ export default class Previews extends View {
     const i = flat.findIndex((x) => x.path === this.sel);
     const next = flat[(((i < 0 ? 0 : i + delta) % flat.length) + flat.length) % flat.length];
     this.sel = next.path;
-    // Horizontal placement renders cards only, so index over what the container holds.
-    const vertical = placement()?.vertical ?? true;
-    const row = this.rows()
-      .filter((r) => vertical || r.item)
-      .findIndex((r) => r.item?.path === next.path);
+    const row = this.rows().findIndex((r) => r.item?.path === next.path);
     if (row >= 0) this.scroll.scroll_to_item(row);
     cx.notify();
   }
@@ -633,7 +636,14 @@ export default class Previews extends View {
     return rows;
   }
 
-  drawerKey(e, cx) {
+  // Back to the terminal this list is about.
+  leave(cx) {
+    if (this.lastTerm && panes().some((p) => p.pane === this.lastTerm)) run("pane.focus", { pane: this.lastTerm });
+    else run("pane.go", { direction: "left" });
+    cx.notify();
+  }
+
+  paneKey(e, cx) {
     const sel = this.items.find((i) => i.path === this.sel);
     switch (keyName(e)) {
       case "up":
@@ -664,9 +674,7 @@ export default class Previews extends View {
         });
         break;
       case "escape":
-        this.wantOpen = false;
-        run("pane.go", { direction: AWAY[placement()?.edge] ?? "left" }); // away from the drawer's edge
-        cx.notify();
+        this.leave(cx);
         break;
       default:
         return;
@@ -675,7 +683,7 @@ export default class Previews extends View {
   }
 
   render(cx) {
-    return this.overlay ? this.windowView(theme(), cx) : this.drawerView(theme(), cx);
+    return this.overlay ? this.windowView(theme(), cx) : this.paneView(theme(), cx);
   }
 
   statusColors(t) {
@@ -695,13 +703,12 @@ export default class Previews extends View {
       .when(rel, (el) => el.child(image(rel).size_full()));
   }
 
-  card(t, item, selected, width) {
+  card(t, item, selected) {
     const pins = this.pinsOf(item.path).length;
     const marks = this.strokesOf(item.path).length;
     return h_flex()
       .id(`card-${item.path}`)
       .h(CARD_H).items_center().gap(8).px(8)
-      .when(width, (el) => el.w(width).flex_none())
       .bg(selected ? t.selected : t.chrome)
       .hover((s) => s.bg(selected ? t.selected : t.hover))
       .cursor_pointer()
@@ -719,44 +726,11 @@ export default class Previews extends View {
       );
   }
 
-  rail(t, unread, vertical) {
-    const color = unread ? t.accent : t.muted;
-    return (vertical ? v_flex() : h_flex())
-      .items_center().justify_center().gap(6).p(8)
-      .when(vertical, (el) => el.w(RAIL_W).py(10))
-      .when(!vertical, (el) => el.h(RAIL_W).px(10))
-      .child(
-        h_flex().w(16).h(12).items_center().justify_center().rounded(3).border_1().border_color(color)
-          .child(div().size(5).rounded(3).bg(color)),
-      )
-      .when(unread > 0, (el) =>
-        el.child(
-          h_flex().min_w(16).h(16).px(4).items_center().justify_center().rounded(8)
-            .bg(t.accent).text_color(t.accent_foreground).text_size(10).font_semibold()
-            .child(String(unread)),
-        ),
-      );
-  }
-
-  drawerView(t, cx) {
-    const pl = placement();
-    const floating = Boolean(pl);
-    const vertical = pl ? pl.vertical : true;
-    if (!this.overlay && !this.bind) this.rebind();
+  paneView(t, cx) {
+    this.rebind(); // focus moves are tracked per render, not only per tick
     const unread = this.unread();
-    const open = !floating || pl.hovered || pl.dragging || this.wantOpen;
-
-    const root = (vertical ? v_flex() : h_flex())
-      .id("previews-root")
-      .track_focus(this.h)
-      .on_key_down((e, cx) => this.drawerKey(e, cx))
-      .bg(t.chrome).text_color(t.foreground).text_size(12);
-
-    if (!open) return root.child(this.rail(t, unread, vertical));
-
     const rows = this.rows();
     const armed = this.armed && Date.now() - this.armed.at <= CONFIRM_MS ? this.armed : null;
-    const listH = rows.reduce((n, r) => n + (r.head ? HEAD_H : CARD_H), 0);
 
     const header = h_flex().h(32).flex_none().items_center().gap(6).px(10)
       .child(div().text_size(12).font_semibold().child("Previews"))
@@ -767,28 +741,22 @@ export default class Previews extends View {
       ? { text: `press x again to delete ${baseName(armed.path)}`, color: t.blocked }
       : this.error
         ? { text: this.error, color: t.blocked }
-        : { text: this.wantOpen ? "j/k ⏎ open · a approve · s send · x delete" : "alt-p to focus", color: t.dim };
+        : { text: "j/k ⏎ open · a approve · s send · x delete · esc back", color: t.dim };
     const footer = div().h(22).flex_none().px(10).flex().items_center().text_size(10).text_color(hint.color).truncate().child(hint.text);
 
     const empty = div().p(14).text_size(11).text_color(t.dim)
-      .child(this.bind?.folder ? "No previews yet. Agents save PNGs here as <name>-vN.png — see mods/previews/agent-snippet.md." : "This space has no folder.");
+      .child(
+        this.bind?.folder
+          ? "No previews yet. Agents save PNGs to .herdr-previews/ in the project as <name>-vN.png (see agent-snippet.md); alt-p opens this pane."
+          : "This space has no folder.",
+      );
 
-    if (!vertical) {
-      return root
-        .when(floating, (el) => el.h(86).w(Math.min(720, 120 + this.items.length * 196)))
-        .when(!floating, (el) => el.size_full())
-        .child(
-          h_flex().id("previews-list").flex_1().min_w(0).items_center().overflow_x_scrollbar().track_scroll(this.scroll)
-            .children(rows.filter((r) => r.item).map((r) => this.card(t, r.item, r.item.path === this.sel, 190)))
-            .when(!rows.length, (el) => el.child(empty)),
-        )
-        .child(footer);
-    }
-
-    const height = Math.min(LIST_MAX_H, 32 + Math.max(listH, 70) + 22 + 10);
-    return root
-      .when(floating, (el) => el.w(LIST_W).h(height))
-      .when(!floating, (el) => el.size_full())
+    return v_flex()
+      .id("previews-root")
+      .track_focus(this.h)
+      .on_key_down((e, cx) => this.paneKey(e, cx))
+      .bg(t.chrome).text_color(t.foreground).text_size(12)
+      .size_full()
       .child(header)
       .child(
         v_flex().id("previews-list").flex_1().min_h(0).overflow_y_scrollbar().track_scroll(this.scroll)
@@ -798,7 +766,7 @@ export default class Previews extends View {
                 ? h_flex().h(HEAD_H).flex_none().items_center().gap(6).px(10)
                   .child(div().flex_1().min_w(0).text_size(10).font_semibold().text_color(t.dim).truncate().child(r.head.stem))
                   .child(div().text_size(10).text_color(t.dim).child(String(r.head.items.length)))
-                : this.card(t, r.item, r.item.path === this.sel, 0),
+                : this.card(t, r.item, r.item.path === this.sel),
             ),
           )
           .when(!rows.length, (el) => el.child(empty)),

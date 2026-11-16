@@ -2,25 +2,17 @@
 
 When a coding agent draws something (a screenshot, a mockup, a rendered page) it
 saves the image into `.herdr-previews/` in the space's folder. This mod shows
-those images in a drawer on the right edge of the window. Click one and a large,
+those images in a pane beside your terminal (`alt-p` opens it). Click one and a large,
 draggable window opens: drop numbered pins on the image with the mouse (or draw on it with a pen, or a circle with shift), write a note on each pin and on each drawing, mark the draft approved, and send the annotated feedback straight
 back to the space's agent with one key. A new image raises a toast and a sound.
 
 ![Previews](preview.png)
 
-<!-- preview.png: screenshot is added by the orchestrator after install. -->
-
 ## What you see
 
-**The rail.** A floating block docked on the right edge. Until the pointer is on
-it (or you focus it with `alt-p`) it is a 36 px wide strip on `chrome`: a 16×12
-rounded outline with a 5 px dot in it (`accent` when something is unread, else
-`muted`), and under it a 16 px high `accent` badge with the number of unread
-(`new`) images, hidden at zero. On a top or bottom edge the same rail lies
-horizontally (36 px high).
-
-**The list.** Hovered or focused, the block is 280 px wide on `chrome`, as tall
-as its content up to 560 px, and scrolls. Top to bottom:
+**The pane.** A mod pane, split off to the right of the terminal by `alt-p`
+(`pane.split` with `direction: right`); no layout block is needed. It is as big as
+the split makes it, on `chrome`, and the card list scrolls. Top to bottom:
 
 - A 32 px header: "Previews" (12 px, semibold), the space's name in `dim`
   (truncated), and on the right "N new" in `accent` (or the image count in `dim`).
@@ -35,14 +27,12 @@ as its content up to 560 px, and scrolls. Top to bottom:
   `foreground`, truncated) and a line with a status dot and word plus
   "N pins" in `dim` when there are pins. The selected card is on `selected`; a
   hovered one on `hover`.
-- A 22 px footer in `dim`, 10 px: "alt-p to focus", or, once focused, the key
-  summary; it turns `blocked`-colored with "press x again to delete <file>" while
+- A 22 px footer in `dim`, 10 px: the key summary ("j/k ⏎ open · a approve · s send · x delete · esc back"); it turns `blocked`-colored with "press x again to delete <file>" while
   a delete is armed, or with the error text if listing/copying/saving failed.
 
-Empty: "No previews yet. Agents save PNGs here as <name>-vN.png — see
-mods/previews/agent-snippet.md." A space without a folder says so.
-
-On a top or bottom edge the cards lie in one 86 px high row (190 px per card).
+Empty: "No previews yet. Agents save PNGs to .herdr-previews/ in the project as
+<name>-vN.png (see agent-snippet.md); alt-p opens this pane." A space without a
+folder says so.
 
 **Status.** Every image is `new` (`accent` dot), `reviewed` (`muted`) or
 `approved` (`done`). Images without a stored entry are `new`.
@@ -69,26 +59,27 @@ or any part that is not a control, remembered by herdr (key `preview`). On
 
 ## How it behaves
 
-**Which space.** The drawer follows the active space: it watches
-`<project>/.herdr-previews/` on that space's machine (local or remote),
-re-reading every 3 s. The project is the focused terminal's live folder
-(`focused().cwd`), because a space's `folder` is only where its terminals start
-(often home). When nothing with a folder is focused (a mod, such as the drawer
-itself), it falls back to the active tab's focused pane's folder (else its first
-pane's), and last to the space's `folder`. The pop-out gets the resolved project
-folder in its props. Switching spaces or `cd`-ing elsewhere switches the list. The pop-out stays on the
-space it was opened from. Feedback goes to the focused agent of that space, or
-the first agent there; with none, a warning toast says so.
+**Which space.** The pane follows the space it sits in (the space whose tab holds
+it; `props().pane` may name it, else the focused previews pane, whose id is then
+remembered; else the active space). It watches `<project>/.herdr-previews/` on that space's machine (local or
+remote), re-reading every 3 s. The project is the live folder of the terminal
+beside the pane. `focused()` can't give it: while the pane has the keyboard it is
+the focused pane. So `projectRoot` takes the focused terminal pane in the same tab
+(`panes()` entries with a `terminal` and a `cwd`), remembers it (`lastTerm`) while
+the keyboard is in the pane, and otherwise uses the remembered one, else the tab's
+first terminal, else the space's focused terminal (`focused()`, when it is in that
+space), else any terminal in the space, and last the space's `folder`. The pop-out
+gets the resolved project folder in its props. `cd`-ing elsewhere or focusing another terminal in the
+tab switches the list. The pop-out stays on the space it was opened from.
+Feedback goes to the focused agent of that space, or the first agent there; with
+none, a warning toast says so.
 
 **New images.** An image path not seen before (in that space, since the mod
 started; the first listing is only the baseline) raises an `info` toast
-"New preview" with the file name and space, plays the `done` sound and, when the
-toast is clicked, focuses the drawer (`previews.focus`). More than three at once
-are folded into one toast.
+"New preview" with the file name and space, plays the `done` sound. More than three at once are folded into one toast.
 
-**Mouse, drawer.** Click a card: it is selected, marked `reviewed` if it was
-`new`, and the pop-out opens on it. While the pointer is on the block the rail is
-replaced by the list; when it leaves, the rail is back.
+**Mouse, pane.** Click a card: it is selected, marked `reviewed` if it was
+`new`, and the pop-out opens on it.
 
 **Mouse, pop-out.** Left click on the image drops a pin there (stored as
 percentages of the image's width and height) and puts the cursor in its note.
@@ -99,12 +90,15 @@ left click on a drawing's row in the Drawings list selects it and focuses its no
 selected. Notes are saved when focus leaves the text area. Pressing on
 the image, a pin, a button or the text area never drags the window.
 
-**Keys, drawer.** `alt-p` (`keys.json`: `previews.focus`) moves the keyboard to
-the drawer and keeps it open. Then `up`/`k`, `down`/`j` move the selection (wraps,
+**Keys, pane.** `alt-p` (`keys.json`: `pane.split` right with `mod: previews`) opens
+the pane; `pane.go` or a click moves the keyboard onto it (the mod focuses itself on
+the `focus` command). Then `up`/`k`, `down`/`j` move the selection (wraps,
 scrolls into view); `enter` opens the pop-out; `a` approves the selected image;
 `shift-a` approves every `new` image in its group; `s` sends its notes; `x` asks
-for confirmation (press again within 3 s) and deletes the file; `escape` goes to
-the pane on the left (`pane.go`).
+for confirmation (press again within 3 s) and deletes the file; `escape`
+(handled by the pane's own `on_key_down`) puts the keyboard back on the
+terminal the list is about (`pane.focus`, if that pane still exists), else the pane
+on the left.
 
 **Drawing, pop-out.** The tool is shown in the panel header and picked with keys
 `1`/`p` pin (the default: a left click drops a pin) and `2`/`d` draw, or the
@@ -164,7 +158,7 @@ A stroke is `{ "tool": "pen|circle|line", "color": "#hex", "text": "optional not
 pen `pts: [{x,y}]`, circle centre `c` and radii `rx`/`ry`, line `a`/`b` (read-only: the
 UI no longer creates lines, old ones are kept, drawn and sent).
 Every edit is applied in memory at once, then re-applied to a fresh read of the
-file and written, so the drawer and the window don't overwrite each other.
+file and written, so the pane and the window don't overwrite each other.
 
 **Stroke overlay.** All of an image's strokes (and the one being drawn) are one SVG,
 `viewBox="0 0 100 100" preserveAspectRatio="none"`, `fill="none"`, 3 px
@@ -175,14 +169,22 @@ the file is rewritten at most every 30 ms (`SVG_THROTTLE_MS`) and the write's
 `cx.notify()` is the repaint, and once more on release. Each write
 is a new file `mods/previews/.cache/strokes-<hash>-<n>.svg` (n counts up; the old
 versions are removed) because the renderer may cache by path. Strokes loaded from
-`notes.json` get their file on the next poll (`ensureStrokes`). The drawer cards
+`notes.json` get their file on the next poll (`ensureStrokes`). The pane's cards
 show a "N ✎" count.
 
-**Layout.** The floating block in the layout has no `peek`: with one, herdr clips
-the block to that size until the pointer hovers, so `alt-p` could not open it. Without
-it the mod's own rail/list switch (`wantOpen` while focused) sizes it.
-
 ## Install
+
+Copy the mod folder into the app and bind `alt-p`; no layout edit is needed (the
+mod is `"place": "none"` and opens as a pane):
+
+```bash
+cp -r mods/previews ~/.config/herdr-app/mods/previews   # never overwrite an existing name; rename instead
+# add the alt-p entry from keys.json to ~/.config/herdr-app/keys.json (ask before replacing a key you already use)
+herdr-app check ~/.config/herdr-app/mods/previews
+```
+
+`keys.json` binds global `alt-p` to `pane.split` with `direction: right` and
+`mod: previews`. Add it to your own `keys.json` by hand if you keep a customized one.
 
 Also paste the content of `agent-snippet.md` into the project's `AGENTS.md`, and
 into any agent skill that produces screenshots (e.g. impeccable), so agents know
@@ -193,23 +195,24 @@ to save PNGs as `.herdr-previews/<target>-vN.png`. The mod never writes an
 
 - `agent-snippet.md`: the ready-to-paste AGENTS.md fragment describing the
   `.herdr-previews/<target>-v<N>.png` convention.
-- `mod.json`: `{ "place": "right", "title": "Previews", "focusable": true }`,
-  so herdr docks one floating copy on the right edge and `pane.go` can focus it.
-- `keys.json`: `{ "global": { "alt-p": "previews.focus" } }`.
+- `mod.json`: `{ "place": "none", "title": "Previews", "focusable": true }`:
+  not docked anywhere; `pane.go` can focus the pane.
+- `keys.json`: global `alt-p` → `{ "command": "pane.split", "args": { "direction":
+  "right", "mod": "previews" } }`.
 - `main.js`: `export default class Previews extends View`. `init` branches on
-  `props().overlay`: the drawer copy (rail, list, key handling, new-image
+  `props().overlay`: the pane copy (card list, key handling, new-image
   announcements) or the pop-out copy (opened with
   `openOverlay({ mod: "previews", kind: "window", key: "preview", width: 0.72,
-  height: 0.85, props: { path, machine, folder, space } })`).
+  height: 880, props: { path, machine, folder, space } })`).
   - Both: `this.h = cx.focus_handle()`, `.track_focus(this.h).on_key_down(...)` on
     the root; `cx.timer.every(1000, ...)` polls on every third tick (and at once
     when the binding changes); `theme()` colors only.
-  - Drawer: `placement()` (rail unless `hovered`/`dragging`/focused; `vertical`
-    chooses column or row), `spaces()` (active space: `machine`, active tab, fallback `folder`), `focused()` (`cwd`), `panes()` (active tab's `cwd`),
-    `agents()` (focused in that space, else first), `ScrollHandle.scroll_to_item`,
-    `nextCommand()` loop for `"focus"` (`this.h.focus()`), `notify` with
-    `action: { name: "previews.focus" }`, `playSound("done")`,
-    `run("pane.go", { direction: "left" })`, `openOverlay`.
+  - Pane: `spaces()` (the space holding the pane: `machine`, `folder`), `panes()`
+    (own pane via `props().pane`; the tab's terminal panes' `cwd` and `focused`),
+    `focused()` (fallback `cwd`), `agents()` (focused in that space, else first),
+    `ScrollHandle.scroll_to_item`, `nextCommand()` loop for `"focus"`
+    (`this.h.focus()`), `notify`, `playSound("done")`,
+    `run("pane.focus", { pane })`, `openOverlay`.
   - Pop-out: `this.zoom`, `on_scroll_wheel` (zoom), `overflow_scroll()` on the stage,
     `closeOverlay(props().overlay)`, `TextareaState.new({ rows: 4 })`
     with `.on("change" | "focus" | "blur")`, `on_size_change` on the image area,
@@ -249,10 +252,6 @@ to save PNGs as `.herdr-previews/<target>-vN.png`. The mod never writes an
 - Pop-out windows are content-sized at first layout, so `on_size_change` can report
   ~0 height initially; the stage has min size 560x420 and `windowView` falls back to
   1000x640 until measured.
-- The drawer shows a rail until hovered. Herdr sizes a floating mod to its content,
-  so the mod itself renders the rail or the list from `placement().hovered`; no
-  `peek` is needed in the layout. A copy focused by key stays open (`wantOpen`)
-  until it loses the keyboard.
 - Stroke SVGs must live in the hidden `.cache` dir and get a new versioned name
   per save: writing a file under `mods/` outside a dot-dir reloads the mod, so a
   non-hidden path would reload it on every save, mid-stroke; and a reused path may
@@ -297,8 +296,13 @@ to save PNGs as `.herdr-previews/<target>-vN.png`. The mod never writes an
   pop-out stops its `left` mouse down; the title bar and empty panel areas don't.
 - Keystroke names are matched as herdr reports them: `shift-a`, `escape`, `[`,
   `,`. Plain letters only act while no note is being typed.
-- The key action is `previews.focus` (`<mod>.<command>`); the `mod:command` form
-  in the `nextCommand` doc comment would run a command named `previews`.
+- Key actions to the mod are `<mod>.<command>` (the `focus` command); the
+  `mod:command` form in the `nextCommand` doc comment would run a command named
+  `previews`. There is no `mod:previews` key section: the pop-out copy has no
+  command loop, so `escape` is handled in each copy's own `on_key_down`.
+  `alt-p` splits every time it is pressed, so a second press opens a second pane.
+- The pane is itself the focused pane while you use it, so the project folder is
+  never read from `focused()` alone (see "Which space").
 - At most 40 images are listed and copied; a space's folder that is empty ("home")
   has no previews. Notes are matched to images by absolute path, so renaming or
   moving a folder starts the statuses over. Deleting a file leaves no trash.
@@ -310,9 +314,9 @@ to save PNGs as `.herdr-previews/<target>-vN.png`. The mod never writes an
 ## Done when
 
 - `herdr-app check mods/previews` exits 0.
-- With a PNG saved into `<space folder>/.herdr-previews/`, within 3 s the rail's
-  badge shows 1, a toast "New preview" appears with the `done` sound, and
-  hovering the rail shows a card with its thumbnail, name and a `new` dot.
+- With a PNG saved into `<space folder>/.herdr-previews/`, within 3 s a toast
+  "New preview" appears with the `done` sound, and the open pane shows a card with
+  its thumbnail, name and a `new` dot (the header says "1 new").
 - Clicking the card opens the pop-out with the full image and the card turns
   `reviewed`; clicking the image adds a numbered pin where you clicked and
   focuses a note; typing a note and pressing `escape` stores it in `notes.json`
@@ -322,7 +326,8 @@ to save PNGs as `.herdr-previews/<target>-vN.png`. The mod never writes an
   `Approve` also adds `Approved: <path>` and turns the status to `approved`.
 - Saving `name-v2.png` next to `name-v1.png` puts both in group `name`; `[`/`]` in
   the pop-out move between them and `Compare` shows the older on the left.
-- `alt-p` focuses the drawer; `j`/`k` move, `x` `x` deletes the file, `escape`
-  returns to the pane on the left.
+- `alt-p` opens the pane to the right of the terminal and it lists the previews of
+  that terminal's folder, also while the pane itself has the keyboard; `j`/`k`
+  move, `x` `x` deletes the file, `escape` returns to the terminal.
 - In a space on another machine the same works (copies over ssh, notes written
   with `exec`).
